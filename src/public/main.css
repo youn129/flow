@@ -1,0 +1,81 @@
+body {
+  font-family: Arial, sans-serif; 
+  max-width: 800px; 
+  margin: 0; 
+  padding: 20px;
+  }
+  .nav {
+    display: flex;
+    padding: 15px;
+    align-items: center;
+    background : #ffffff;
+  }
+  .nav a {
+    margin-right: 10px;
+  }
+  .logo {
+    font-weight: bold;
+  }
+  .grey-bg {
+    background: #eee;
+  }
+  .white-bg {
+    background: white;
+    margin: 20px;
+    border-radius: 5px;
+  }
+  .list-box {
+    padding : 10px;
+    border-bottom: 1px solid#eee;
+  }
+  .list-box h4{
+    font-size: 16px;
+    margin: 5px;
+  }
+  .list-box p {
+    font-size: 13px;
+    margin: 5px;
+    color: grey;
+  }
+  a {
+    text-decoration-line: none;
+  }
+  h1 { 
+    color: #333; 
+  }
+  .section {
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    border-radius: 5px;
+  }
+
+  .input-group {
+      margin-bottom: 20px;
+  }
+
+  .btn {
+      width: auto;
+      padding: 0.375rem 0.75rem;
+  }
+  .fixed-extensions { 
+    display: flex; 
+    flex-wrap: wrap; 
+  }
+  .fixed-extensions label { 
+    margin-right: 10px; 
+  }
+  #customExtension { 
+    width: 150px; 
+  }
+  #customExtensionsList { 
+    margin-top: 10px; 
+  }
+  .custom-extension { 
+    display: inline-block; 
+    margin-right: 10px; 
+    margin-bottom: 5px; 
+  }
+  .remove-extension { 
+    cursor: pointer; 
+    color: red; 
+    margin-left: 5px; 
+  }
