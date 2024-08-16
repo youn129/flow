@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>파일 확장자 차단</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link href="/main.css" rel="stylesheet">
+</head>
+<body>
+    <%- include('nav.ejs') %>
+    <div class="container mt-4">
+        <h1 class="mb-4 text-center">파일 확장자 차단</h1>
+
+        <div class="section mb-5 p-4 bg-light border">
+            <h2>고정 확장자</h2>
+            <div class="fixed-extensions" id="fixedExtensions">
+                <!-- 고정 확장자 체크박스 JavaScript로 동적 생성 -->
+            </div>
+        </div>
+
+        <div class="section mb-5 p-4 bg-light border">
+            <h2>커스텀 확장자</h2>
+            <input type="text" id="customExtension" class="form-control mb-2" maxlength="20" placeholder="확장자 입력">
+            <button id="addCustomExtension" class="btn btn-primary">추가</button>
+            <div id="customExtensionsList">
+                <!-- 커스텀 확장자 목록 JavaScript로 동적 생성 -->
+            </div>
+            <div>등록된 확장자: <span id="extensionCount">0</span>/200</div>
+        </div>
+
+        <div class="section mb-5 p-4 bg-light border">
+            <h2>파일 업로드</h2>
+            <input type="file" id="fileInput" class="form-control mb-2">
+            <button id="uploadBtn" class="btn btn-success">업로드</button>
+        </div>
+    </div>
+
+    <script>
+        const fixedExtensionsEl = document.getElementById('fixedExtensions');
+        const customExtensionInput = document.getElementById('customExtension');
+        const addCustomExtensionBtn = document.getElementById('addCustomExtension');
+        const customExtensionsListEl = document.getElementById('customExtensionsList');
+        const fileInput = document.getElementById('fileInput');
+        const uploadBtn = document.getElementById('uploadBtn');
+
+        let customExtensions = [];
+        let fixedExtensions = [];
+
+        // 고정 확장자 로드 및 표시
+        async function loadFixedExtensions() {
+            const response = await fetch('/api/extensions/fixed');
+            fixedExtensions = await response.json();
+            renderFixedExtensions();
+        }
+
+        function renderFixedExtensions() {
+            fixedExtensionsEl.innerHTML = fixedExtensions.map(ext => `
+                <label>
+                    <input type="checkbox" class="fixed-extension" 
+                        data-id="${ext.id}" 
+                        ${ext.is_checked ? 'checked' : ''}>
+                    ${ext.extension}
+                </label>
+            `).join('');
+
+            document.querySelectorAll('.fixed-extension').forEach(checkbox => {
+                checkbox.addEventListener('change', async (e) => {
+                    const id = e.target.dataset.id;
+                    const isChecked = e.target.checked;
+                    await fetch(`/api/extensions/fixed/${id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ is_checked: isChecked })
+                    });
+                });
+            });
+        }
+
+        async function loadCustomExtensions() {
+            const response = await fetch('/api/extensions/custom');
+            customExtensions = await response.json();
+            updateCustomExtensionsList();
+        }
+
+        addCustomExtensionBtn.addEventListener('click', async () => {
+            let extension = customExtensionInput.value.trim();
+            if (extension && !extension.startsWith('.')) {
+                extension = `.${extension}`;
+            }
+            if (extension && !customExtensions.some(ext => ext.extension === extension) && customExtensions.length < 200) {
+                const response = await fetch('/api/extensions/custom', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ extension })
+                });
+                if (response.ok) {
+                    const newExtension = await response.json();
+                    customExtensions.push(newExtension);
+                    updateCustomExtensionsList();
+                    customExtensionInput.value = '';
+                } else {
+                    const errorData = await response.json();
+                    alert(errorData.error);
+                }
+            }
+        });
+
+        function updateCustomExtensionsList() {
+            customExtensionsListEl.innerHTML = customExtensions.map(ext => `
+                <div class="custom-extension-box">
+                    <input type="text" value="${ext.extension}" readonly />
+                    <button class="remove-extension" data-id="${ext.id}">X</button>
+                </div>
+            `).join('');
+
+            document.querySelectorAll('.remove-extension').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const idToRemove = e.target.dataset.id;
+                    await fetch(`/api/extensions/custom/${idToRemove}`, {
+                        method: 'DELETE'
+                    });
+                    customExtensions = customExtensions.filter(ext => ext.id !== parseInt(idToRemove));
+                    updateCustomExtensionsList();
+                });
+            });
+
+            document.getElementById('extensionCount').textContent = customExtensions.length;
+        }
+
+        uploadBtn.addEventListener('click', async () => {
+            const file = fileInput.files[0];
+            if (!file) {
+                alert('파일을 선택하세요.');
+                return;
+            }
+
+            const extension = file.name.split('.').pop().toLowerCase();
+            const disallowedExtensions = [
+                ...fixedExtensions.filter(ext => ext.is_checked).map(ext => ext.extension.toLowerCase()),
+                ...customExtensions.map(ext => ext.extension.toLowerCase())
+            ];
+
+            if (disallowedExtensions.includes(extension)) {
+                alert('차단된 확장자 파일입니다. 업로드할 수 없습니다.');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/api/extensions/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    alert('파일이 성공적으로 업로드되었습니다.');
+                } else {
+                    const errorText = await response.json();
+                    alert(errorText.error || '파일 업로드에 실패했습니다.');
+                }
+            } catch (error) {
+                console.error('업로드 중 오류 발생:', error);
+                alert('파일 업로드 중 오류가 발생했습니다.');
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', function() {
+            loadFixedExtensions();
+            loadCustomExtensions();
+        });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+</body>
+</html>
