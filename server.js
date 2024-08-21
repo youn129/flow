@@ -1,17 +1,23 @@
 const express = require('express');
 const client = require('prom-client');
-const app = express();
 const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+const cors = require('cors');
 const extensionRoutes = require('./src/routes/api/extensions/enroll');
-
-require('dotenv').config();
+const app = express();
 
 app.use(express.static(path.join(__dirname, 'src/public')));
 app.set('view engine', 'ejs'); 
 app.set('views', path.join(__dirname, 'src/views'));
 app.use(express.json());
 
+app.use(cors());
 app.use('/api/extensions', extensionRoutes);
+
+app.use((err, req, res, next) => {
+  console.error('Error occurred:', err.stack);
+  res.status(500).send('Something broke!');
+});
 
 const PORT = process.env.PORT;
 

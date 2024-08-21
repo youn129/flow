@@ -1,12 +1,15 @@
-require('dotenv').config();
-
 const router = require('express').Router();
 const multer = require('multer');
 const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../../../.env') });
+console.log('ENCRYPTION_KEY:', process.env.ENCRYPTION_KEY);
 const fs = require('fs');
 const fileType = require('file-type');
 const crypto = require('crypto');
 const algorithm = 'aes-256-ctr';
+
+process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default_value';
+
 const password = process.env.ENCRYPTION_KEY;
 const pool = require('../../../db/connection'); // pool을 별도 모듈로 관리
 const winston = require('winston');
@@ -24,26 +27,44 @@ const logger = winston.createLogger({
 
 // Multer storage 설정
 const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, 'uploads/'); // 업로드할 파일 저장 경로
-    },
-    filename: function (req, file, cb) {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const safeFileName = uniqueSuffix + path.extname(file.originalname);
-        cb(null, safeFileName); // 파일 이름을 고유하게 변경
-    }
+  destination: function (req, file, cb) {
+      const uploadPath = path.join(__dirname, '../../../../uploads');
+      console.log('Upload path:', uploadPath);
+      
+      // uploads 디렉토리가 없으면 생성
+      if (!fs.existsSync(uploadPath)) {
+          console.log('Uploads directory does not exist. Creating it...');
+          fs.mkdirSync(uploadPath, { recursive: true });
+          fs.chmodSync(uploadPath, 0o777);
+      }
+
+      cb(null, uploadPath); // 업로드할 파일 저장 경로
+  },
+  filename: function (req, file, cb) {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      const safeFileName = uniqueSuffix + path.extname(file.originalname);
+      console.log('Safe file name:', safeFileName);
+      cb(null, safeFileName); // 파일 이름을 고유하게 변경
+  }
 });
+
+// console.log(process.env);
 
 const upload = multer({ 
   storage: storage,
   limits: { filesize: 20 * 1024 * 1024 } // 파일 크기 최대 20MB까지
 });
 
-
+console.log('ENCRYPTION_KEY:', process.env.ENCRYPTION_KEY);
 // 암호화 함수
 function encrypt(buffer) {
-  const cipher = crypto.createCipher(algorithm, password);
-  const crypted = Buffer.concat([cipher.update(buffer), cipher.final()]);
+  const iv = crypto.randomBytes(16); // Initial Vector 생성
+  const key = Buffer.from(process.env.ENCRYPTION_KEY, 'hex'); // hex로 변환
+
+  console.log('Encryption Key Length:', key.length); // 키 길이를 출력
+
+  const cipher = crypto.createCipheriv(algorithm, key, iv);
+  const crypted = Buffer.concat([iv, cipher.update(buffer), cipher.final()]);
   return crypted;
 }
 
@@ -177,51 +198,89 @@ router.delete('/custom/:id', async (req, res) => {
 
 // 파일 업로드
 router.post('/upload', upload.single('file'), async (req, res) => {
-    const file = req.file;
-    if (!file) {
-        logger.error('No file uploaded');
-        return res.status(400).json({ error: 'No file uploaded' });
-    }
+  const file = req.file;
+  if (!file) {
+      logger.error('No file uploaded');
+      return res.status(400).json({ error: 'No file uploaded' });
+  }
 
-    logger.info(`Upload attempt for file: ${file.originalname}`);
+  logger.info(`Upload attempt for file: ${file.originalname}`);
 
-    // 파일의 실제 MIME 타입을 읽기
-    const buffer = fs.readFileSync(file.path);
-    const fileTypeResult = await fileType.fromBuffer(buffer); 
+  // 파일의 실제 MIME 타입을 읽기
+  const buffer = fs.readFileSync(file.path);
+  let fileTypeResult;
+  try {
+      fileTypeResult = await fileType.fromBuffer(buffer);
+  } catch (fileTypeError) {
+      logger.error('Error determining file type:', fileTypeError);
+      console.error('File type determination error:', fileTypeError);
+      return res.status(500).json({ error: 'File type detection error' });
+  }
 
-    // MIME 타입과 파일 확장자 비교
-    if (!fileTypeResult || path.extname(file.originalname).toLowerCase() !== `.${fileTypeResult.ext}`) {
+  logger.info(`Detected MIME type: ${fileTypeResult?.mime}`);
+  logger.info(`Detected file extension: ${fileTypeResult?.ext}`);
+  logger.info(`Original file extension: ${path.extname(file.originalname).toLowerCase()}`);
+
+  if (!fileTypeResult || path.extname(file.originalname).toLowerCase() !== `.${fileTypeResult.ext}`) {
       logger.error('File type mismatch');
-      await secureDelete(file.path); // 업로드된 파일 안전 삭제
+      await secureDelete(file.path);
       return res.status(400).json({ error: '파일 확장자와 MIME 타입이 일치하지 않습니다.' });
-   }
+  }
 
-    try {
-        const [fixedExtensionsRows] = await pool.query('SELECT * FROM fixed_extensions WHERE is_checked = true');
-        const [customExtensionsRows] = await pool.query('SELECT * FROM custom_extensions');
-        
-        const disallowedExtensions = [
-            ...fixedExtensionsRows.map(ext => ext.extension.toLowerCase()),
-            ...customExtensionsRows.map(ext => ext.extension.toLowerCase())
-        ];
+  try {
+      const [fixedExtensionsRows] = await pool.query('SELECT * FROM fixed_extensions WHERE is_checked = true');
+      const [customExtensionsRows] = await pool.query('SELECT * FROM custom_extensions');
+      
+      const disallowedExtensions = [
+          ...fixedExtensionsRows.map(ext => ext.extension.toLowerCase()),
+          ...customExtensionsRows.map(ext => ext.extension.toLowerCase())
+      ];
 
-        if (disallowedExtensions.includes(`.${fileTypeResult.ext}`)) {
-            logger.warn(`Blocked extension upload attempt: ${fileTypeResult.ext}`);
-            await secureDelete(file.path); // 업로드된 파일 안전 삭제
-            return res.status(400).json({ error: '차단된 확장자 파일입니다. 업로드할 수 없습니다.' });
-        }
-        // 파일 암호화 및 저장
-        const encryptedData = encrypt(buffer);
-        fs.writeFileSync(`encrypted_uploads/${file.filename}`, encryptedData);
-        logger.info(`File uploaded and encrypted: ${file.filename}`);
-        res.json({ message: '파일이 성공적으로 업로드되었습니다.' });
-    } catch (error) {
-        logger.error('Error during file upload', { error: error.message });
-        await secureDelete(file.path); // 업로드된 파일 안전 삭제
-        res.status(500).json({ error: 'File upload validation error' });
-    }
+      if (disallowedExtensions.includes(`.${fileTypeResult.ext}`)) {
+          logger.warn(`Blocked extension upload attempt: ${fileTypeResult.ext}`);
+          await secureDelete(file.path);
+          return res.status(400).json({ error: '차단된 확장자 파일입니다. 업로드할 수 없습니다.' });
+      }
+
+      // 파일 암호화 및 저장하기 전에 쓰기 권한 확인
+      const encryptedPath = path.resolve(__dirname, '../../../../uploads');
+
+      try {
+          // 먼저 경로가 존재하지 않는 경우 생성
+          if (!fs.existsSync(encryptedPath)) {
+              fs.mkdirSync(encryptedPath, { recursive: true });
+              fs.chmodSync(encryptedPath, 0o777);
+          }
+
+          // 경로에 대한 쓰기 권한 확인
+          fs.accessSync(encryptedPath, fs.constants.W_OK);
+
+          // 파일 암호화 및 저장
+          const encryptedData = encrypt(buffer);
+          fs.writeFileSync(`${encryptedPath}/${file.filename}`, encryptedData);
+          logger.info(`File uploaded and encrypted: ${file.filename}`);
+          res.json({ message: '파일이 성공적으로 업로드되었습니다.' });
+
+      } catch (err) {
+          if (err.code === 'EACCES') {
+              logger.error('Write permission denied for path:', encryptedPath);
+              console.error('Write permission denied:', err);
+              return res.status(500).json({ error: 'Write permission denied' });
+          } else {
+              logger.error('Error during file encryption or saving:', err);
+              console.error('Encryption error:', err);
+              await secureDelete(file.path);
+              return res.status(500).json({ error: 'File encryption or saving error' });
+          }
+      }
+
+  } catch (error) {
+      logger.error('Unexpected error during file processing:', error.stack);
+      console.error('Unexpected error:', error);
+      await secureDelete(file.path);
+      return res.status(500).json({ error: 'File upload validation error' });
+  }
 });
-
 
 
 
