@@ -60,6 +60,9 @@ app.get('/metrics', async (req, res) => {
   res.end(await client.register.metrics());
 });
 
+
+console.log('PORT:', process.env.PORT);
+
 // 서버 시작
 app.listen(PORT, () => {
   console.log(`http://localhost:${PORT} 에서 서버 실행중`);
