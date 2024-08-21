@@ -67,7 +67,7 @@ app.get('/metrics', async (req, res) => {
 });
 
 
-console.log('PORT:', process.env.PORT);
+
 
 // 서버 시작
 app.listen(PORT, () => {

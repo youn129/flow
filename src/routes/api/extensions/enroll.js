@@ -2,7 +2,6 @@ const router = require('express').Router();
 const multer = require('multer');
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../../../../.env') });
-console.log('ENCRYPTION_KEY:', process.env.ENCRYPTION_KEY);
 const fs = require('fs');
 const fileType = require('file-type');
 const crypto = require('crypto');
@@ -55,7 +54,7 @@ const upload = multer({
   limits: { filesize: 20 * 1024 * 1024 } // 파일 크기 최대 20MB까지
 });
 
-console.log('ENCRYPTION_KEY:', process.env.ENCRYPTION_KEY);
+
 // 암호화 함수
 function encrypt(buffer) {
   const iv = crypto.randomBytes(16); // Initial Vector 생성
